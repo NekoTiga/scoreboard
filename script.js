@@ -4,6 +4,7 @@ const SUPABASE_KEY = "sb_publishable_GVwEVH4c59J5jvHQDdlbPw_D76wE8qY";  // вс�
 
 const MAX_VOTES = 2;
 
+
 // ====== Получаем IP пользователя ======
 async function getIP() {
     try {
@@ -52,8 +53,8 @@ async function vote(teacherId, value) {
         return;
     }
 
-    // Добавляем голос
-    await fetch(`${SUPABASE_URL}/rest/v1/votes`, {
+    // 1️⃣ Сохраняем голос
+    const voteRes = await fetch(`${SUPABASE_URL}/rest/v1/votes`, {
         method: "POST",
         headers: {
             "apikey": SUPABASE_KEY,
@@ -66,21 +67,22 @@ async function vote(teacherId, value) {
             value
         })
     });
+    if (!voteRes.ok) return alert("Ошибка при сохранении голоса");
 
-    // Обновляем счёт преподавателя через PATCH
-    // Для этого используем формулу: score = score + value
-    // Supabase REST API не поддерживает выражения напрямую, поэтому сначала нужно получить текущее значение
+    // 2️⃣ Получаем текущее значение score
     const scoreRes = await fetch(`${SUPABASE_URL}/rest/v1/teachers?id=eq.${teacherId}`, {
         headers: {
             "apikey": SUPABASE_KEY,
-            "Authorization": `Bearer ${SUPABASE_KEY}`,
+            "Authorization": `Bearer ${SUPABASE_KEY}`
         }
     });
     const teacherData = await scoreRes.json();
-    if (teacherData.length === 0) return;
+    if (!teacherData.length) return alert("Преподаватель не найден");
+
     const newScore = teacherData[0].score + value;
 
-    await fetch(`${SUPABASE_URL}/rest/v1/teachers?id=eq.${teacherId}`, {
+    // 3️⃣ Обновляем score преподавателя
+    const patchRes = await fetch(`${SUPABASE_URL}/rest/v1/teachers?id=eq.${teacherId}`, {
         method: "PATCH",
         headers: {
             "apikey": SUPABASE_KEY,
@@ -89,7 +91,9 @@ async function vote(teacherId, value) {
         },
         body: JSON.stringify({ score: newScore })
     });
+    if (!patchRes.ok) return alert("Ошибка при обновлении счёта");
 
+    // 4️⃣ Только после успешного PATCH обновляем интерфейс
     loadTeachers();
 }
 
