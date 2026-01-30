@@ -2,10 +2,6 @@
 const SUPABASE_URL = "https://cbjpipjnwuoxozysybch.supabase.co";       // вставь свой Project URL
 const SUPABASE_KEY = "sb_publishable_GVwEVH4c59J5jvHQDdlbPw_D76wE8qY";  // вставь anon public key
 
-// Создаём клиента Supabase
-const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-
-// Максимальное количество голосов на одного препода с одного IP
 const MAX_VOTES = 2;
 
 // ====== Получаем IP пользователя ======
@@ -20,74 +16,74 @@ async function getIP() {
     }
 }
 
-// ====== Загружаем преподавателей и отображаем ======
+// ====== Получаем список преподавателей ======
 async function loadTeachers() {
-    const { data: teachers, error } = await supabase
-        .from('teachers')
-        .select('*')
-        .order('score', { ascending: false });
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/teachers?select=*&order=score.desc`, {
+        headers: {
+            "apikey": SUPABASE_KEY,
+            "Authorization": `Bearer ${SUPABASE_KEY}`,
+        }
+    });
 
-    if (error) {
-        console.error("Ошибка загрузки преподавателей:", error);
-        return;
-    }
-
+    const teachers = await res.json();
     render(teachers);
 }
 
-// ====== Проверяем количество голосов с текущего IP ======
+// ====== Получаем голоса текущего IP для преподавателя ======
 async function getVotesForTeacher(teacherId, ip) {
-    const { data, error } = await supabase
-        .from('votes')
-        .select('*')
-        .eq('teacher_id', teacherId)
-        .eq('ip_address', ip);
-
-    if (error) {
-        console.error("Ошибка проверки голосов:", error);
-        return [];
-    }
-    return data;
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/votes?teacher_id=eq.${teacherId}&ip_address=eq.${ip}`, {
+        headers: {
+            "apikey": SUPABASE_KEY,
+            "Authorization": `Bearer ${SUPABASE_KEY}`,
+        }
+    });
+    const votes = await res.json();
+    return votes;
 }
 
-// ====== Отправка голоса ======
+// ====== Голосование ======
 async function vote(teacherId, value) {
     const ip = await getIP();
     if (!ip) return alert("Не удалось определить ваш IP");
 
     const votes = await getVotesForTeacher(teacherId, ip);
-
     if (votes.length >= MAX_VOTES) {
         alert("Вы уже использовали 2 голоса для этого преподавателя");
         return;
     }
 
-    // Сохраняем голос в таблице votes
-    const { error: voteError } = await supabase
-        .from('votes')
-        .insert([{ teacher_id: teacherId, ip_address: ip, value }]);
+    // Добавляем голос
+    await fetch(`${SUPABASE_URL}/rest/v1/votes`, {
+        method: "POST",
+        headers: {
+            "apikey": SUPABASE_KEY,
+            "Authorization": `Bearer ${SUPABASE_KEY}`,
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+            teacher_id: teacherId,
+            ip_address: ip,
+            value
+        })
+    });
 
-    if (voteError) {
-        console.error("Ошибка сохранения голоса:", voteError);
-        return;
-    }
+    // Обновляем счёт
+    await fetch(`${SUPABASE_URL}/rest/v1/teachers?id=eq.${teacherId}`, {
+        method: "PATCH",
+        headers: {
+            "apikey": SUPABASE_KEY,
+            "Authorization": `Bearer ${SUPABASE_KEY}`,
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+            score: value
+        })
+    });
 
-    // Обновляем счёт преподавателя
-    const { error: scoreError } = await supabase
-        .from('teachers')
-        .update({ score: supabase.raw('score + ?', [value]) })
-        .eq('id', teacherId);
-
-    if (scoreError) {
-        console.error("Ошибка обновления счёта:", scoreError);
-        return;
-    }
-
-    // Обновляем список преподавателей
     loadTeachers();
 }
 
-// ====== Отрисовка списка ======
+// ====== Отрисовка ======
 function render(teachers) {
     const container = document.getElementById("scoreboard");
     container.innerHTML = "";
@@ -103,6 +99,7 @@ function render(teachers) {
                 <button onclick="vote(${t.id}, -1)">👎</button>
             </div>
         `;
+
         container.appendChild(div);
     });
 }
