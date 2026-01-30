@@ -1,0 +1,48 @@
+body {
+    font-family: Arial, sans-serif;
+    background: #f5f5f5;
+    padding: 20px;
+    color: #333;
+}
+
+h1 {
+    text-align: center;
+    margin-bottom: 30px;
+}
+
+.teacher {
+    background: white;
+    padding: 15px 20px;
+    margin: 10px auto;
+    max-width: 500px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-radius: 10px;
+    box-shadow: 0 3px 6px rgba(0,0,0,0.1);
+    transition: transform 0.2s;
+}
+
+.teacher:hover {
+    transform: translateY(-2px);
+}
+
+.buttons button {
+    margin-left: 5px;
+    font-size: 18px;
+    padding: 5px 10px;
+    cursor: pointer;
+    border: none;
+    border-radius: 5px;
+    background: #4CAF50;
+    color: white;
+    transition: background 0.2s;
+}
+
+.buttons button:nth-child(2) {
+    background: #f44336;
+}
+
+.buttons button:hover {
+    opacity: 0.8;
+}
