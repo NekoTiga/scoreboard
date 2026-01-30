@@ -67,7 +67,19 @@ async function vote(teacherId, value) {
         })
     });
 
-    // Обновляем счёт
+    // Обновляем счёт преподавателя через PATCH
+    // Для этого используем формулу: score = score + value
+    // Supabase REST API не поддерживает выражения напрямую, поэтому сначала нужно получить текущее значение
+    const scoreRes = await fetch(`${SUPABASE_URL}/rest/v1/teachers?id=eq.${teacherId}`, {
+        headers: {
+            "apikey": SUPABASE_KEY,
+            "Authorization": `Bearer ${SUPABASE_KEY}`,
+        }
+    });
+    const teacherData = await scoreRes.json();
+    if (teacherData.length === 0) return;
+    const newScore = teacherData[0].score + value;
+
     await fetch(`${SUPABASE_URL}/rest/v1/teachers?id=eq.${teacherId}`, {
         method: "PATCH",
         headers: {
@@ -75,9 +87,7 @@ async function vote(teacherId, value) {
             "Authorization": `Bearer ${SUPABASE_KEY}`,
             "Content-Type": "application/json"
         },
-        body: JSON.stringify({
-            score: value
-        })
+        body: JSON.stringify({ score: newScore })
     });
 
     loadTeachers();
