@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>Довези Медведева до лесу</title>
+<style>
+  body {
+    margin: 0;
+    background: #111;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+  }
+  canvas {
+    border: 3px solid #555;
+    background: black;
+  }
+</style>
+</head>
+<body>
+
+<canvas id="game" width="800" height="400"></canvas>
+
+<script>
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+
+/* ========= ЗАГРУЗКА ========= */
+function loadImage(src) {
+  const img = new Image();
+  img.src = src;
+  return img;
+}
+
+/* ========= ГРАФИКА ========= */
+const carFrames = [
+  loadImage("assets/car/car_1.png"),
+  loadImage("assets/car/car_2.png"),
+  loadImage("assets/car/car_3.png")
+];
+
+const obstacleImages = [
+  loadImage("assets/obstacles/obstacle_1.png"),
+  loadImage("assets/obstacles/obstacle_2.png")
+];
+
+const kebabImage = loadImage("assets/kebab/kebab.png");
+const healthImage = loadImage("assets/ui/heart.png");
+
+const backgrounds = [
+  loadImage("assets/bg/city.png"),
+  loadImage("assets/bg/village.png"),
+  loadImage("assets/bg/field.png"),
+  loadImage("assets/bg/forest.png")
+];
+
+const hitEffectFrames = [
+  loadImage("assets/effects/hit/hit_1.png"),
+  loadImage("assets/effects/hit/hit_2.png"),
+  loadImage("assets/effects/hit/hit_3.png")
+];
+
+const pickupEffectFrames = [
+  loadImage("assets/effects/pickup/pickup_1.png"),
+  loadImage("assets/effects/pickup/pickup_2.png")
+];
+
+/* ========= ЗВУК ========= */
+const music = new Audio("assets/music/bg.mp3");
+music.loop = true;
+music.volume = 0.4;
+
+const sfxHit = new Audio("assets/sfx/hit.wav");
+const sfxPickup = new Audio("assets/sfx/pickup.wav");
+
+document.addEventListener("keydown", () => {
+  if (music.paused) music.play();
+}, { once: true });
+
+/* ========= СОСТОЯНИЕ ========= */
+let score = 0;
+let health = 3;
+let gameOver = false;
+let bgOffset = 0;
+
+/* ========= ИГРОК ========= */
+const car = {
+  x: 100,
+  y: 280,
+  width: 80,
+  height: 40,
+  vy: 0,
+  gravity: 0.8,
+  jumpPower: -14,
+  frame: 0,
+  frameTimer: 0,
+  maxJumps: 2,
+  jumpsLeft: 2
+};
+
+/* ========= ОБЪЕКТЫ ========= */
+let obstacles = [];
+let kebabs = [];
+let effects = [];
+
+/* ========= НАСТРОЙКИ БАЛАНСА ========= */
+const GROUND_Y = 280;
+const MIN_OBSTACLE_GAP = 180; // 🔧 гарантирует проходимость
+
+/* ========= УПРАВЛЕНИЕ ========= */
+document.addEventListener("keydown", e => {
+  if ((e.code === "Space" || e.code === "ArrowUp") && car.jumpsLeft > 0) {
+    car.vy = car.jumpPower;
+    car.jumpsLeft--;
+  }
+});
+
+/* ========= УТИЛИТЫ ========= */
+function collide(a, b) {
+  return a.x < b.x + b.width &&
+         a.x + a.width > b.x &&
+         a.y < b.y + b.height &&
+         a.y + a.height > b.y;
+}
+
+function currentBackground() {
+  if (score < 300) return backgrounds[0];
+  if (score < 600) return backgrounds[1];
+  if (score < 900) return backgrounds[2];
+  return backgrounds[3];
+}
+
+function spawnEffect(x, y, frames) {
+  effects.push({ x, y, frames, frame: 0, timer: 0 });
+}
+
+/* ========= СПАВН ========= */
+function canSpawnObstacle() {
+  if (obstacles.length === 0) return true;
+  const last = obstacles[obstacles.length - 1];
+  return last.x < canvas.width - MIN_OBSTACLE_GAP;
+}
+
+function spawnObstacle() {
+  if (!canSpawnObstacle()) return;
+
+  obstacles.push({
+    x: canvas.width,
+    y: 300,
+    width: 40,
+    height: 40,
+    speed: 6,
+    img: obstacleImages[Math.floor(Math.random() * obstacleImages.length)]
+  });
+}
+
+function spawnKebab() {
+  kebabs.push({
+    x: canvas.width,
+    y: 240,
+    width: 30,
+    height: 30,
+    speed: 5
+  });
+}
+
+/* ========= ОБНОВЛЕНИЕ ========= */
+function update() {
+  if (gameOver) return;
+
+  score++;
+  bgOffset -= 2;
+
+  // Физика
+  car.vy += car.gravity;
+  car.y += car.vy;
+
+  if (car.y >= GROUND_Y) {
+    car.y = GROUND_Y;
+    car.vy = 0;
+    car.jumpsLeft = car.maxJumps; // 🔧 сброс double jump
+  }
+
+  // Анимация машины
+  if (++car.frameTimer > 6) {
+    car.frame = (car.frame + 1) % carFrames.length;
+    car.frameTimer = 0;
+  }
+
+  obstacles.forEach(o => o.x -= o.speed);
+  kebabs.forEach(k => k.x -= k.speed);
+
+  obstacles = obstacles.filter(o => {
+    if (collide(car, o)) {
+      health--;
+      sfxHit.currentTime = 0;
+      sfxHit.play();
+      spawnEffect(o.x, o.y, hitEffectFrames);
+      if (health <= 0) gameOver = true;
+      return false;
+    }
+    return o.x + o.width > 0;
+  });
+
+  kebabs = kebabs.filter(k => {
+    if (collide(car, k)) {
+      if (health < 3) health++;
+      sfxPickup.currentTime = 0;
+      sfxPickup.play();
+      spawnEffect(k.x, k.y, pickupEffectFrames);
+      return false;
+    }
+    return k.x + k.width > 0;
+  });
+
+  effects = effects.filter(e => {
+    if (++e.timer > 4) {
+      e.frame++;
+      e.timer = 0;
+    }
+    return e.frame < e.frames.length;
+  });
+
+  if (Math.random() < 0.02) spawnObstacle();
+  if (Math.random() < 0.005) spawnKebab();
+}
+
+/* ========= ОТРИСОВКА ========= */
+function draw() {
+  const bg = currentBackground();
+  ctx.drawImage(bg, bgOffset, 0, canvas.width, canvas.height);
+  ctx.drawImage(bg, bgOffset + canvas.width, 0, canvas.width, canvas.height);
+  if (bgOffset <= -canvas.width) bgOffset = 0;
+
+  ctx.fillStyle = "#333";
+  ctx.fillRect(0, 320, canvas.width, 80);
+
+  ctx.drawImage(carFrames[car.frame], car.x, car.y, car.width, car.height);
+
+  obstacles.forEach(o => ctx.drawImage(o.img, o.x, o.y, o.width, o.height));
+  kebabs.forEach(k => ctx.drawImage(kebabImage, k.x, k.y, k.width, k.height));
+  effects.forEach(e => ctx.drawImage(e.frames[e.frame], e.x, e.y, 50, 50));
+
+  for (let i = 0; i < health; i++) {
+    ctx.drawImage(healthImage, 10 + i * 35, 10, 30, 20);
+  }
+
+  ctx.fillStyle = "white";
+  ctx.font = "20px sans-serif";
+  ctx.textAlign = "right";
+  ctx.fillText("Score: " + score, canvas.width - 15, 25);
+
+  if (gameOver) {
+    ctx.font = "32px sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText("GAME OVER", canvas.width / 2, 200);
+  }
+}
+
+/* ========= ЦИКЛ ========= */
+function loop() {
+  update();
+  draw();
+  requestAnimationFrame(loop);
+}
+
+loop();
+</script>
+
+</body>
+</html>
