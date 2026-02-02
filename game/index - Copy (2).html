@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>Довези Медведева до лесу</title>
+<style>
+body {
+  margin: 0;
+  background: #111;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 100vh;
+}
+canvas {
+  border: 3px solid #555;
+  background: black;
+  touch-action: manipulation;
+}
+#menu {
+  position: absolute;
+  width: 800px;
+  height: 400px;
+  background: rgba(0,0,0,0.75);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  color: white;
+  font-family: sans-serif;
+}
+button {
+  font-size: 22px;
+  padding: 10px 25px;
+  cursor: pointer;
+}
+</style>
+</head>
+<body>
+
+<div id="menu">
+  <h1>Довези Медведева до лесу</h1>
+  <button id="startBtn">Начать игру</button>
+</div>
+
+<canvas id="game" width="800" height="400"></canvas>
+
+<script>
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+const menu = document.getElementById("menu");
+const startBtn = document.getElementById("startBtn");
+
+/* ========= КОНСТАНТЫ ========= */
+const ROAD_Y = 320;
+const ROAD_HEIGHT = 80;
+const GROUND_Y = ROAD_Y - 10;
+const MIN_OBSTACLE_GAP = 180;
+const OBSTACLE_SCALE = 0.25;
+
+/* ========= ЗАГРУЗКА ========= */
+function loadImage(src) {
+  const img = new Image();
+  img.src = src;
+  return img;
+}
+
+/* ========= ИЗОБРАЖЕНИЯ ========= */
+const carFrames = [
+  loadImage("assets/car/car_1.png"),
+  loadImage("assets/car/car_2.png"),
+  loadImage("assets/car/car_3.png")
+];
+
+const obstacleImages = [
+  loadImage("assets/obstacles/obstacle_1.png"),
+  loadImage("assets/obstacles/obstacle_2.png")
+];
+
+const kebabImage = loadImage("assets/kebab/kebab.png");
+const healthImage = loadImage("assets/kebab/kebab.png");
+
+const backgrounds = [
+  loadImage("assets/bg/city.png"),
+  loadImage("assets/bg/village.png"),
+  loadImage("assets/bg/field.png"),
+  loadImage("assets/bg/forest.png")
+];
+
+const bgElements = [
+  loadImage("assets/bg_elements/city_1.png"),
+  loadImage("assets/bg_elements/city_2.png"),
+  loadImage("assets/bg_elements/trees_1.png"),
+  loadImage("assets/bg_elements/trees_2.png")
+];
+
+const roadImage = loadImage("assets/road/road.png");
+
+/* ========= ЭФФЕКТЫ ========= */
+const hitEffectFrames = [
+  loadImage("assets/effects/hit/hit_1.png"),
+  loadImage("assets/effects/hit/hit_2.png"),
+  loadImage("assets/effects/hit/hit_3.png")
+];
+
+const pickupEffectFrames = [
+  loadImage("assets/effects/pickup/pickup_1.png"),
+  loadImage("assets/effects/pickup/pickup_2.png")
+];
+
+/* ========= ЗВУК ========= */
+const music = new Audio("assets/music/bg.mp3");
+music.loop = true;
+music.preload = "auto";
+music.volume = 0.4;
+
+const sfxHit = new Audio("assets/sfx/hit.mp3");
+const sfxPickup = new Audio("assets/sfx/pickup.mp3");
+
+/* ========= СОСТОЯНИЕ ========= */
+let gameStarted = false;
+let gameOver = false;
+let score = 0;
+let health = 3;
+let bgOffset = 0;
+let roadOffset = 0;
+
+/* ========= ДОЖДЬ ========= */
+let rainActive = false;
+let rainTimer = 0;
+let nextRain = rand(3600, 5400);
+let rainDrops = [];
+
+/* ========= ИГРОК ========= */
+const car = {
+  x: 100,
+  y: GROUND_Y,
+  width: 80,
+  height: 40,
+  vy: 0,
+  gravity: 0.8,
+  jumpPower: -14,
+  maxJumps: 2,
+  jumpsLeft: 2,
+  frame: 0,
+  frameTimer: 0
+};
+
+/* ========= ОБЪЕКТЫ ========= */
+let obstacles = [];
+let kebabs = [];
+let parallaxObjects = [];
+let effects = [];
+
+/* ========= УПРАВЛЕНИЕ ========= */
+function jump() {
+  if (car.jumpsLeft > 0 && gameStarted) {
+    car.vy = car.jumpPower;
+    car.jumpsLeft--;
+  }
+}
+document.addEventListener("keydown", e => {
+  if (e.code === "Space" || e.code === "ArrowUp") jump();
+});
+canvas.addEventListener("touchstart", e => {
+  e.preventDefault();
+  jump();
+});
+
+/* ========= МЕНЮ ========= */
+startBtn.onclick = () => {
+  menu.style.display = "none";
+  gameStarted = true;
+  music.play();
+};
+
+/* ========= УТИЛИТЫ ========= */
+function rand(min, max) {
+  return Math.floor(Math.random() * (max - min)) + min;
+}
+
+function collide(a, b) {
+  return a.x < b.x + b.width &&
+         a.x + a.width > b.x &&
+         a.y < b.y + b.height &&
+         a.y + a.height > b.y;
+}
+
+function currentBackground() {
+  if (score < 300) return backgrounds[0];
+  if (score < 600) return backgrounds[1];
+  if (score < 900) return backgrounds[2];
+  return backgrounds[3];
+}
+
+function spawnEffect(x, y, frames) {
+  effects.push({ x, y, frames, frame: 0, timer: 0 });
+}
+
+/* ========= СПАВН ========= */
+function spawnObstacle() {
+  const last = obstacles[obstacles.length - 1];
+  if (last && canvas.width - last.x < MIN_OBSTACLE_GAP) return;
+
+  const img = obstacleImages[Math.floor(Math.random() * obstacleImages.length)];
+  if (!img.complete) return;
+
+  const width = img.naturalWidth * OBSTACLE_SCALE;
+  const height = img.naturalHeight * OBSTACLE_SCALE;
+  const maxYOffset = ROAD_HEIGHT - height - 5;
+
+  obstacles.push({
+    x: canvas.width,
+    y: ROAD_Y + rand(5, Math.max(6, maxYOffset)),
+    width,
+    height,
+    speed: 4 + Math.random() * 2,
+    img
+  });
+}
+
+function spawnKebab() {
+  kebabs.push({
+    x: canvas.width,
+    y: ROAD_Y - 80,
+    width: 30,
+    height: 30,
+    speed: 4
+  });
+}
+
+function spawnParallax() {
+  const img = bgElements[Math.floor(Math.random() * bgElements.length)];
+  if (!img.complete) return;
+
+  parallaxObjects.push({
+    x: canvas.width,
+    y: ROAD_Y - img.naturalHeight,
+    img,
+    width: img.naturalWidth,
+    height: img.naturalHeight,
+    speed: 1 + Math.random()
+  });
+}
+
+/* ========= ДОЖДЬ ========= */
+function updateRain() {
+  if (!rainActive) {
+    if (--nextRain <= 0) {
+      rainActive = true;
+      rainTimer = rand(900, 1200);
+      nextRain = rand(3600, 5400);
+    }
+    return;
+  }
+
+  rainTimer--;
+  if (rainTimer <= 0) {
+    rainActive = false;
+    rainDrops = [];
+  }
+
+  if (rainDrops.length < 150) {
+    rainDrops.push({
+      x: Math.random() * canvas.width,
+      y: Math.random() * canvas.height,
+      speed: 6 + Math.random() * 4
+    });
+  }
+
+  rainDrops.forEach(d => {
+    d.y += d.speed;
+    if (d.y > canvas.height) {
+      d.y = -10;
+      d.x = Math.random() * canvas.width;
+    }
+  });
+}
+
+/* ========= ОБНОВЛЕНИЕ ========= */
+function update() {
+  if (!gameStarted || gameOver) return;
+
+  score++;
+  bgOffset -= 1;
+  roadOffset -= 4;
+
+  updateRain();
+
+  car.vy += car.gravity;
+  car.y += car.vy;
+  if (car.y >= GROUND_Y) {
+    car.y = GROUND_Y;
+    car.vy = 0;
+    car.jumpsLeft = car.maxJumps;
+  }
+
+  if (++car.frameTimer > 6) {
+    car.frame = (car.frame + 1) % carFrames.length;
+    car.frameTimer = 0;
+  }
+
+  obstacles.forEach(o => o.x -= o.speed);
+  kebabs.forEach(k => k.x -= k.speed);
+  parallaxObjects.forEach(p => p.x -= p.speed);
+
+  obstacles = obstacles.filter(o => {
+    if (collide(car, o)) {
+      health--;
+      sfxHit.currentTime = 0;
+      sfxHit.play();
+      spawnEffect(o.x, o.y, hitEffectFrames);
+      if (health <= 0) gameOver = true;
+      return false;
+    }
+    return o.x + o.width > 0;
+  });
+
+  kebabs = kebabs.filter(k => {
+    if (collide(car, k)) {
+      if (health < 3) health++;
+      sfxPickup.currentTime = 0;
+      sfxPickup.play();
+      spawnEffect(k.x, k.y, pickupEffectFrames);
+      return false;
+    }
+    return k.x + k.width > 0;
+  });
+
+  effects = effects.filter(e => {
+    if (++e.timer > 4) {
+      e.frame++;
+      e.timer = 0;
+    }
+    return e.frame < e.frames.length;
+  });
+
+  parallaxObjects = parallaxObjects.filter(p => p.x + p.width > 0);
+
+  if (Math.random() < 0.02) spawnObstacle();
+  if (Math.random() < 0.005) spawnKebab();
+  if (Math.random() < 0.01) spawnParallax();
+}
+
+/* ========= ОТРИСОВКА ========= */
+function draw() {
+  const bg = currentBackground();
+  ctx.drawImage(bg, bgOffset, 0, canvas.width, canvas.height);
+  ctx.drawImage(bg, bgOffset + canvas.width, 0, canvas.width, canvas.height);
+  if (bgOffset <= -canvas.width) bgOffset = 0;
+
+  parallaxObjects.forEach(p =>
+    ctx.drawImage(p.img, p.x, p.y, p.width, p.height)
+  );
+
+  ctx.drawImage(roadImage, roadOffset, ROAD_Y, canvas.width, ROAD_HEIGHT);
+  ctx.drawImage(roadImage, roadOffset + canvas.width, ROAD_Y, canvas.width, ROAD_HEIGHT);
+  if (roadOffset <= -canvas.width) roadOffset = 0;
+
+  ctx.drawImage(carFrames[car.frame], car.x, car.y, car.width, car.height);
+
+  obstacles.forEach(o =>
+    ctx.drawImage(o.img, o.x, o.y, o.width, o.height)
+  );
+
+  kebabs.forEach(k =>
+    ctx.drawImage(kebabImage, k.x, k.y, k.width, k.height)
+  );
+
+  effects.forEach(e =>
+    ctx.drawImage(e.frames[e.frame], e.x, e.y, 50, 50)
+  );
+
+  if (rainActive) {
+    ctx.strokeStyle = "rgba(180,180,255,0.6)";
+    ctx.lineWidth = 1;
+    rainDrops.forEach(d => {
+      ctx.beginPath();
+      ctx.moveTo(d.x, d.y);
+      ctx.lineTo(d.x, d.y + 8);
+      ctx.stroke();
+    });
+  }
+
+  for (let i = 0; i < health; i++) {
+    ctx.drawImage(healthImage, 10 + i * 35, 10, 30, 20);
+  }
+
+  ctx.fillStyle = "white";
+  ctx.font = "20px sans-serif";
+  ctx.textAlign = "right";
+  ctx.fillText("Score: " + score, canvas.width - 15, 25);
+
+  if (gameOver) {
+    ctx.font = "32px sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText("GAME OVER", canvas.width / 2, 200);
+  }
+}
+
+function loop() {
+  update();
+  draw();
+  requestAnimationFrame(loop);
+}
+loop();
+</script>
+
+</body>
+</html>

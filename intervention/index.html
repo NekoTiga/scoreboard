@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <title>Canvas Shooter</title>
+  <style>
+    html, body { margin:0; padding:0; overflow:hidden; background:#000; }
+    canvas { display:block; }
+  </style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<script>
+// =====================
+// БАЗА
+// =====================
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+function resize(){ canvas.width = innerWidth; canvas.height = innerHeight; }
+window.addEventListener('resize', resize); resize();
+
+// =====================
+// НАСТРОЙКИ
+// =====================
+const MOVE_RADIUS = 220;
+const PLAYER_SPEED = 3.5;
+
+// =====================
+// СПРАЙТЫ (спрайты смотрят ВПРАВО)
+// =====================
+const sprites = {
+  player: ['player_1.png','player_2.png','player_3.png'],
+  background: 'background.png',
+  enemies: {
+    a:['e1_1.png','e1_2.png'],
+    b:['e2_1.png','e2_2.png'],
+    c:['e3_1.png','e3_2.png'],
+    d:['e4_1.png','e4_2.png']
+  }
+};
+
+function load(list){ return list.map(s=>{const i=new Image(); i.src=s; return i;}); }
+const playerImgs = load(sprites.player);
+const enemyImgs = Object.fromEntries(Object.entries(sprites.enemies).map(([k,v])=>[k,load(v)]));
+const bg = new Image(); bg.src = sprites.background;
+
+// =====================
+// ИГРОК
+// =====================
+const center = ()=>({x:canvas.width/2,y:canvas.height/2});
+const player = {
+  x:0, y:0,
+  frame:0, tick:0,
+  hp:100, maxHp:100,
+  face: 1 // 1 = вправо, -1 = влево
+};
+Object.assign(player, center());
+
+// =====================
+// ВВОД (WASD + СТРЕЛКИ)
+// =====================
+const keys = {};
+window.addEventListener('keydown', e => keys[e.key.toLowerCase()] = true);
+window.addEventListener('keyup', e => keys[e.key.toLowerCase()] = false);
+
+// =====================
+// ПУЛИ И МЫШЬ
+// =====================
+const bullets = [];
+canvas.addEventListener('mousedown', e => {
+  const r = canvas.getBoundingClientRect();
+  const mx = e.clientX - r.left;
+  const my = e.clientY - r.top;
+
+  // определяем только ЛЕВО / ПРАВО
+  player.face = (mx >= player.x) ? 1 : -1;
+
+  const a = Math.atan2(my - player.y, mx - player.x);
+  bullets.push({
+    x: player.x,
+    y: player.y,
+    dx: Math.cos(a) * 8,
+    dy: Math.sin(a) * 8
+  });
+});
+
+// =====================
+// ВРАГИ
+// =====================
+const enemies = [];
+const enemyBullets = [];
+const PLAYER_HIT_RADIUS = 26;
+const ENEMY_HIT_RADIUS = 26;
+
+function spawnEnemy(){
+  const side = Math.floor(Math.random() * 4);
+  let x, y;
+  if(side === 0){ x = Math.random()*canvas.width; y = -60; }
+  if(side === 1){ x = canvas.width+60; y = Math.random()*canvas.height; }
+  if(side === 2){ x = Math.random()*canvas.width; y = canvas.height+60; }
+  if(side === 3){ x = -60; y = Math.random()*canvas.height; }
+
+  const types = Object.keys(enemyImgs);
+  const type = types[Math.floor(Math.random()*types.length)];
+
+  enemies.push({ x, y, type, frame:0, tick:0, shoot:0, face:1 });
+}
+setInterval(spawnEnemy, 1200);
+
+// =====================
+// UPDATE
+// =====================
+function update(){
+  // движение игрока (WASD + стрелки)
+  let dx = 0, dy = 0;
+  if(keys['w'] || keys['arrowup']) dy--;
+  if(keys['s'] || keys['arrowdown']) dy++;
+  if(keys['a'] || keys['arrowleft']) dx--;
+  if(keys['d'] || keys['arrowright']) dx++;
+
+  const nx = player.x + dx * PLAYER_SPEED;
+  const ny = player.y + dy * PLAYER_SPEED;
+  const c = center();
+  if(Math.hypot(nx - c.x, ny - c.y) <= MOVE_RADIUS){
+    player.x = nx;
+    player.y = ny;
+  }
+
+  player.tick++;
+  if(player.tick > 8){
+    player.frame = (player.frame + 1) % playerImgs.length;
+    player.tick = 0;
+  }
+
+  bullets.forEach(b => { b.x += b.dx; b.y += b.dy; });
+
+  // попадания пуль игрока
+  for(let i=enemies.length-1;i>=0;i--){
+    for(let j=bullets.length-1;j>=0;j--){
+      if(Math.hypot(enemies[i].x - bullets[j].x, enemies[i].y - bullets[j].y) < ENEMY_HIT_RADIUS){
+        bullets.splice(j,1);
+        enemies.splice(i,1);
+        break;
+      }
+    }
+  }
+
+  // враги
+  enemies.forEach(e => {
+    const dxp = player.x - e.x;
+    const dyp = player.y - e.y;
+    const a = Math.atan2(dyp, dxp);
+
+    e.face = (dxp >= 0) ? 1 : -1;
+    e.x += Math.cos(a) * 1.2;
+    e.y += Math.sin(a) * 1.2;
+
+    e.tick++;
+    if(e.tick > 12){
+      e.frame = (e.frame + 1) % enemyImgs[e.type].length;
+      e.tick = 0;
+    }
+
+    e.shoot++;
+    if(e.shoot > 150){
+      enemyBullets.push({
+        x: e.x,
+        y: e.y,
+        dx: Math.cos(a) * 3,
+        dy: Math.sin(a) * 3
+      });
+      e.shoot = 0;
+    }
+  });
+
+  enemyBullets.forEach(b => { b.x += b.dx; b.y += b.dy; });
+
+  // урон игроку
+  for(let i=enemyBullets.length-1;i>=0;i--){
+    if(Math.hypot(player.x - enemyBullets[i].x, player.y - enemyBullets[i].y) < PLAYER_HIT_RADIUS){
+      enemyBullets.splice(i,1);
+      player.hp = Math.max(0, player.hp - 10);
+    }
+  }
+}
+
+// =====================
+// DRAW
+// =====================
+function draw(){
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  if(bg.complete) ctx.drawImage(bg,0,0,canvas.width,canvas.height);
+
+  const c = center();
+  ctx.strokeStyle = 'rgba(255,255,255,.25)';
+  ctx.beginPath(); ctx.arc(c.x,c.y,MOVE_RADIUS,0,Math.PI*2); ctx.stroke();
+
+  // игрок (ТОЛЬКО отражение по X)
+  const pi = playerImgs[player.frame];
+  if(pi.complete){
+    ctx.save();
+    ctx.translate(player.x, player.y);
+    ctx.scale(player.face, 1);
+    ctx.drawImage(pi, -32, -32, 64, 64);
+    ctx.restore();
+  }
+
+  // враги (ТОЛЬКО лево/право)
+  enemies.forEach(e => {
+    const ei = enemyImgs[e.type][e.frame];
+    if(ei.complete){
+      ctx.save();
+      ctx.translate(e.x, e.y);
+      ctx.scale(e.face, 1);
+      ctx.drawImage(ei, -32, -32, 64, 64);
+      ctx.restore();
+    }
+  });
+
+  // пули
+  ctx.fillStyle = 'yellow'; bullets.forEach(b => ctx.fillRect(b.x,b.y,4,4));
+  ctx.fillStyle = 'red'; enemyBullets.forEach(b => ctx.fillRect(b.x,b.y,4,4));
+
+  // HP
+  const barW = 200, barH = 14;
+  ctx.fillStyle = 'rgba(0,0,0,.6)'; ctx.fillRect(20,20,barW,barH);
+  ctx.fillStyle = '#0f0'; ctx.fillRect(20,20,barW*(player.hp/player.maxHp),barH);
+  ctx.strokeStyle = '#fff'; ctx.strokeRect(20,20,barW,barH);
+}
+
+function loop(){ update(); draw(); requestAnimationFrame(loop); }
+loop();
+</script>
+</body>
+</html>
